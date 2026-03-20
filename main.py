@@ -133,10 +133,22 @@ def main(urls: List[str], filename: str) -> None:
                 total_iter.update(len(data))
                 f.write(data)
 
+        if ranges[idx]["downloaded"]:
+            URL_LOCKS[th_idx].release()
+            PROXIES_LOCK[proxy_idx].release()
+            return
+
         if not math.isclose(len(f.getvalue()), ranges[idx]["bytes"], abs_tol=1):
             # progress_bar.close()
             total_iter.update(-len(f.getvalue()))
             ranges[idx]["inUse"] = False
+            URL_LOCKS[th_idx].release()
+            PROXIES_LOCK[proxy_idx].release()
+            return
+
+        # Double check downloaded status before writing to avoid overwriting a faster thread
+        if ranges[idx]["downloaded"]:
+            total_iter.update(-len(f.getvalue()))
             URL_LOCKS[th_idx].release()
             PROXIES_LOCK[proxy_idx].release()
             return
@@ -157,21 +169,32 @@ def main(urls: List[str], filename: str) -> None:
     try:
         while done_count < len(ranges):
             for idx, irange in ranges.items():
-                if irange["inUse"] or irange["downloaded"]:
+                # Normal mode: skip if in use or downloaded
+                # Speedup mode (last 5%): skip only if downloaded
+                is_tail_end = (len(ranges) - done_count) / len(ranges) < 0.05 or (len(ranges) - done_count) <= 5
+                
+                if irange["downloaded"]:
+                    continue
+                
+                if not is_tail_end and irange["inUse"]:
                     continue
 
                 tmp_filename = os.path.join("tmp", f"{filename}.part{str(idx).zfill(len(str(splitBy)))}")
                 if os.path.exists(tmp_filename):
-                    og_data = open(tmp_filename, "rb").read()
-                    if math.isclose(len(og_data), ranges[idx]["bytes"], abs_tol=1):
-                        if not irange["downloaded"]:
-                            total_iter.update(ranges[idx]["bytes"])
-                            done_count += 1
-                            total_iter.desc = f"[{done_count}/{len(ranges)}] Downloaded"
-                            irange["downloaded"] = True
-                            continue
-                    else:
-                        os.remove(tmp_filename)
+                    if not os.path.getsize(tmp_filename) == 0: # Avoid reading empty files
+                        try:
+                            og_data = open(tmp_filename, "rb").read()
+                            if math.isclose(len(og_data), ranges[idx]["bytes"], abs_tol=1):
+                                if not irange["downloaded"]:
+                                    total_iter.update(ranges[idx]["bytes"])
+                                    done_count += 1
+                                    total_iter.desc = f"[{done_count}/{len(ranges)}] Downloaded"
+                                    irange["downloaded"] = True
+                                    continue
+                            else:
+                                os.remove(tmp_filename)
+                        except (PermissionError, IOError):
+                            pass # File might be in use by another thread
 
                 for th_idx in range(batch_count):
                     if URL_LOCKS[th_idx].locked():
