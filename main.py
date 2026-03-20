@@ -17,7 +17,7 @@ import requests
 from tqdm import tqdm
 
 import k2s
-from utils import get_working_proxies, lock_file
+from utils import get_working_proxies
 
 WORKING_PROXY_LIST = []
 PROXIES = get_working_proxies()
@@ -261,25 +261,21 @@ if __name__ == '__main__':
     batch_count = int(args.batch_count)
     BYTES_PER_SPLIT = parse_size(args.size)
 
-    with lock_file("urls.json") as f:
-        f.seek(0)
-        content = f.read()
-        if not content:
-            past_urls = {}
-        else:
-            past_urls = json.loads(content)
+    # Use a per-file URL cache to allow parallel downloads without locking
+    url_cache_file = os.path.join("tmp", f"{file_name}.urls.json")
+    
+    if not os.path.exists(url_cache_file):
+        urls = k2s.generate_download_urls(file_id, batch_count)
+        with open(url_cache_file, "w") as f:
+            json.dump(urls, f, indent=4)
+    else:
+        with open(url_cache_file, "r") as f:
+            urls = json.load(f)
 
-        urls = []
-        if file_id in past_urls:
-            urls = past_urls[file_id]
-
-        if len(urls) < batch_count:
-            urls = k2s.generate_download_urls(file_id, batch_count)
-
-        past_urls[file_id] = urls
-        f.seek(0)
-        json.dump(past_urls, f, indent=4)
-        f.truncate()
+    if len(urls) < batch_count:
+        urls = k2s.generate_download_urls(file_id, batch_count)
+        with open(url_cache_file, "w") as f:
+            json.dump(urls, f, indent=4)
 
     URL_LOCKS = [threading.Lock() for _ in range(batch_count)]
     START_TIME = time.time()
