@@ -8,6 +8,31 @@ from requests_futures.sessions import FuturesSession
 from tqdm import tqdm
 
 
+import time
+import contextlib
+
+@contextlib.contextmanager
+def lock_file(file_path):
+    if os.name == 'nt':  # Windows
+        import msvcrt
+        with open(file_path, 'r+') if os.path.exists(file_path) else open(file_path, 'w+') as f:
+            while True:
+                try:
+                    msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                    yield f
+                    msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                    break
+                except IOError:
+                    time.sleep(0.1)
+    else:  # Linux/Unix
+        import fcntl
+        with open(file_path, 'r+') if os.path.exists(file_path) else open(file_path, 'w+') as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                yield f
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+
 def get_working_proxies(refresh: bool = False):
 
     if pathlib.Path("proxies.txt").exists() and not refresh:

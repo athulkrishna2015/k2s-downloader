@@ -17,7 +17,7 @@ import requests
 from tqdm import tqdm
 
 import k2s
-from utils import get_working_proxies
+from utils import get_working_proxies, lock_file
 
 WORKING_PROXY_LIST = []
 PROXIES = get_working_proxies()
@@ -261,23 +261,25 @@ if __name__ == '__main__':
     batch_count = int(args.batch_count)
     BYTES_PER_SPLIT = parse_size(args.size)
 
-    if not pathlib.Path("urls.json").exists():
-        with open("urls.json", "w") as f:
-            json.dump({}, f)
+    with lock_file("urls.json") as f:
+        f.seek(0)
+        content = f.read()
+        if not content:
+            past_urls = {}
+        else:
+            past_urls = json.loads(content)
 
-    with open("urls.json", "r") as f:
-        past_urls = json.load(f)
+        urls = []
+        if file_id in past_urls:
+            urls = past_urls[file_id]
 
-    urls = []
-    if file_id in past_urls:
-        urls = past_urls[file_id]
+        if len(urls) < batch_count:
+            urls = k2s.generate_download_urls(file_id, batch_count)
 
-    if len(urls) < batch_count:
-        urls = k2s.generate_download_urls(file_id, batch_count)
-
-    past_urls[file_id] = urls
-    with open("urls.json", "w") as f:
+        past_urls[file_id] = urls
+        f.seek(0)
         json.dump(past_urls, f, indent=4)
+        f.truncate()
 
     URL_LOCKS = [threading.Lock() for _ in range(batch_count)]
     START_TIME = time.time()

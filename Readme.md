@@ -8,6 +8,7 @@ A multi-threaded downloader for k2s.cc and keep2share.cc with proxy support and 
 - **Robust Captcha Handling**: Rotates through domains and proxies to fetch captcha challenges.
 - **Corruption Check**: Uses `ffmpeg` to verify downloaded video files.
 - **Resume Support**: Checks for existing `.part` files in the `tmp/` directory.
+- **Concurrent Instance Support**: Includes cross-platform file locking for `urls.json`, allowing multiple instances to run safely.
 
 ## Environment
 - Python 3.10+ (Tested on Linux and Windows)
@@ -48,5 +49,6 @@ python main.py "https://keep2share.cc/file/..." \
 The script uses `proxies.txt` if available. If not, it will automatically fetch a list of working proxies. You can manually add your own proxies to `proxies.txt` (one per line, format: `ip:port`).
 
 ## Notes
-- If you encounter a `522` or `JSONDecodeError`, the script will automatically retry using different proxies and domains (`k2s.cc` vs `keep2share.cc`).
-- Captcha response is required for free users. The script will display the captcha image and prompt for input.
+- **Concurrent Downloads**: You can run multiple instances of the script for different files. Make sure to use unique `--filename` values for each.
+- **API Errors**: If you encounter a `522` or `JSONDecodeError`, the script will automatically retry using different proxies and domains (`k2s.cc` vs `keep2share.cc`).
+- **Captcha**: Captcha response is required for free users. The script will display the captcha image and prompt for input.
