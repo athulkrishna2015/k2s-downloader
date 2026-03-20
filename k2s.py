@@ -90,6 +90,10 @@ def generate_download_urls(file_id: str, count: int = 1, skip: int = 0) -> list:
     # Get captcha image with the same proxy used to request it
     try:
         r = requests.get(captcha["captcha_url"], headers=headers, proxies=prox, timeout=10)
+        if r.status_code != 200 or 'image' not in r.headers.get('Content-Type', '').lower():
+            print(f"\nError: Captcha image could not be loaded (Status: {r.status_code}). Try running again.")
+            sys.exit(1)
+            
         im = Image.open(BytesIO(r.content))
         im.show()
     except Exception as e:
