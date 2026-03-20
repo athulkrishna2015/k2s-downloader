@@ -39,6 +39,7 @@ def generate_from_key(url: str, key: str, proxy: str) -> str:
                 # If it's a permanent error, we might want to break or return None
                 if data.get('message') == 'File not found':
                     return None
+                time.sleep(1)
         except Exception as e:
             time.sleep(1)
             continue

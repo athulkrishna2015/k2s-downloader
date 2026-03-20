@@ -104,6 +104,7 @@ def main(urls: List[str], filename: str) -> None:
 
         while PROXIES_LOCK[proxy_idx].locked():
             proxy_idx = random.randint(0, len(PROXIES) - 1)
+            time.sleep(0.01)
 
         PROXIES_LOCK[proxy_idx].acquire()
 
@@ -180,6 +181,7 @@ def main(urls: List[str], filename: str) -> None:
                     irange["inUse"] = True
                     threading.Thread(target=downloadChunk, args=(idx, irange["range"], th_idx), daemon=True).start()
                     break
+            time.sleep(0.1)
 
     except KeyboardInterrupt:
         stop = True
@@ -188,12 +190,18 @@ def main(urls: List[str], filename: str) -> None:
         return
 
     for lock in URL_LOCKS:
-        while lock.locked():
-            lock.release()
+        if lock.locked():
+            try:
+                lock.release()
+            except RuntimeError:
+                pass
 
     for lock in PROXIES_LOCK:
-        while lock.locked():
-            lock.release()
+        if lock.locked():
+            try:
+                lock.release()
+            except RuntimeError:
+                pass
 
     total_iter.close()
     print("--- %s seconds ---" % int(time.time() - START_TIME))
