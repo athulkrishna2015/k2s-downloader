@@ -13,11 +13,8 @@ from requests_futures.sessions import FuturesSession
 from utils import get_working_proxies
 
 DOMAINS = [
-    # "keep2share.cc",
+    "keep2share.cc",
     "k2s.cc",
-    # "tezfiles.com",
-    # "fboom.me",
-    # "fast-download.me"
 ]
 
 def generate_from_key(url: str, key: str, proxy: str) -> str:
@@ -27,13 +24,24 @@ def generate_from_key(url: str, key: str, proxy: str) -> str:
     else:
         prox = None
     
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36"}
     while True:
-        with contextlib.suppress(Exception):
+        try:
             r = requests.post(f"https://{choice(DOMAINS)}/api/v2/getUrl", json={
                 "file_id": url,
                 "free_download_key": key
-            }, proxies=prox).json()
-            return r['url']
+            }, proxies=prox, headers=headers, timeout=10)
+            data = r.json()
+            if data.get('status') == 'success' and 'url' in data:
+                return data['url']
+            elif data.get('status') == 'error':
+                print(f"Error in generate_from_key: {data.get('message')}")
+                # If it's a permanent error, we might want to break or return None
+                if data.get('message') == 'File not found':
+                    return None
+        except Exception as e:
+            time.sleep(1)
+            continue
 
 def generate_download_urls(file_id: str, count: int = 1, skip: int = 0) -> list:
 
@@ -44,10 +52,49 @@ def generate_download_urls(file_id: str, count: int = 1, skip: int = 0) -> list:
     working_link = False
     free_download_key = ""
     urls = []
-    captcha = requests.post(f"https://{choice(DOMAINS)}/api/v2/requestCaptcha").json()
-    r = requests.get(captcha["captcha_url"])
-    im = Image.open(BytesIO(r.content))
-    im.show()
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"}
+    
+    captcha = None
+    max_retries = 15
+    prox = None
+    
+    # Try multiple domains and proxies for captcha
+    for attempt in range(max_retries):
+        domain = choice(DOMAINS)
+        prox = None
+        p_info = "LOCAL"
+        if proxy_urls:
+            p = choice(proxy_urls)
+            if p:
+                prox = {'https': f'http://{p}'}
+                p_info = p
+
+        print(f"\033[KRequesting captcha from {domain} using {p_info}... (Attempt {attempt+1}/{max_retries})", end='\r')
+        
+        try:
+            r = requests.post(f"https://{domain}/api/v2/requestCaptcha", headers=headers, proxies=prox, timeout=10)
+            if r.status_code == 200:
+                captcha = r.json()
+                if captcha.get('status') == 'success':
+                    break
+        except Exception:
+            continue
+            
+    if not captcha:
+        print("\nFailed to get captcha after multiple attempts.")
+        sys.exit(1)
+    
+    print(f"\nGot captcha challenge: {captcha['challenge']}")
+    
+    # Get captcha image with the same proxy used to request it
+    try:
+        r = requests.get(captcha["captcha_url"], headers=headers, proxies=prox, timeout=10)
+        im = Image.open(BytesIO(r.content))
+        im.show()
+    except Exception as e:
+        print(f"Failed to download or show captcha image: {e}")
+        sys.exit(1)
+
     response = input(f"Enter captcha response: ")
 
     for url in proxy_urls:
@@ -57,19 +104,20 @@ def generate_download_urls(file_id: str, count: int = 1, skip: int = 0) -> list:
             prox = None
         while not working_link:
             try:
-                free_r = requests.post(f"https://{choice(DOMAINS)}/api/v2/getUrl", json={
+                r = requests.post(f"https://{choice(DOMAINS)}/api/v2/getUrl", json={
                     "file_id": file_id,
                     "captcha_challenge": captcha["challenge"],
                     "captcha_response": response
-                }, proxies=prox, timeout=5).json()
+                }, proxies=prox, headers=headers, timeout=10)
+                free_r = r.json()
             except KeyboardInterrupt:
                 sys.exit()
-            except :
+            except Exception:
                 break
 
             if free_r['status'] == "error":
                 if free_r["message"] == "Invalid captcha code":
-                    r = requests.get(captcha["captcha_url"])
+                    r = requests.get(captcha["captcha_url"], headers=headers, proxies=prox, timeout=10)
                     im = Image.open(BytesIO(r.content))
                     im.show()
                     response = input(f"Enter captcha response: ")
@@ -122,7 +170,19 @@ def generate_download_urls(file_id: str, count: int = 1, skip: int = 0) -> list:
     return urls[:count]
 
 def get_name(file_id: str) -> str:
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36"}
     r = requests.post(f"https://{choice(DOMAINS)}/api/v2/getFilesInfo", json={
         "ids": [file_id]
-    }).json()
-    return r['files'][0]['name']
+    }, headers=headers)
+    try:
+        data = r.json()
+    except requests.exceptions.JSONDecodeError:
+        print(f"Error: getFilesInfo returned non-JSON from {r.url}")
+        print(f"Status Code: {r.status_code}")
+        sys.exit(1)
+    
+    if data.get('status') == 'error':
+        print(f"Error getting file info: {data.get('message')}")
+        sys.exit(1)
+
+    return data['files'][0]['name']
